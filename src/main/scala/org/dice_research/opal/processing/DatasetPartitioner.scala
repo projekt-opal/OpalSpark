@@ -57,11 +57,9 @@ object DatasetPartitioner {
       else
         result = result.union(graphRdd.find(Some(o), None, None))
     }
-    val res = result.collect
-    val newObjects = result.map(f => f.getObject).collect()
-    val tm = result.size()
-    if (newObjects.size > 0)
-      result.union(getGraph(newObjects, graphRdd))
+    val newObjects = result.map(f => f.getObject)
+    if (newObjects.take(0) != null)
+      result.union(getGraph(result.map(f => f.getObject).collect(), graphRdd))
     else
       result
   }
