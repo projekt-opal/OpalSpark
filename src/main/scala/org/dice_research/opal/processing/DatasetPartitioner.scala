@@ -9,6 +9,10 @@ import org.apache.spark.graphx.Graph
 import org.apache.spark.sql.SparkSession
 import org.apache.jena.graph.NodeFactory
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+
 
 /**
  * 
@@ -21,25 +25,25 @@ object DatasetPartitioner {
 
   def main(args: Array[String]): Unit = {
 
-    val spark = SparkSession.builder().appName("DatasetPartitioner").getOrCreate()
+    val spark = SparkSession.builder().appName("DatasetPartitioner")
+//    .master("local[*]")
+     .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer").getOrCreate()
 
     val input = args(0)
     val dest = args(1)
+    val lType = args(2).toLowerCase()
 
-    val lang = Lang.NTRIPLES
+    val lang = if( lType.equals("ttl") )Lang.TTL else Lang.NT 
 
-    val graphRdd = spark.rdf(lang)(input)
-    val sparqlQuery = "select ?s where {?s a <http://www.w3.org/ns/dcat#Dataset>.} "
+    val graphRdd = spark.rdf(lang)(input).persist
 
-    import net.sansa_stack.query.spark.query._
-
-    val datasets = graphRdd.sparql(sparqlQuery).rdd.map(x => x(1).toString).collect
+    val datasets = graphRdd.filter(f => f.getObject.toString.equals("http://www.w3.org/ns/dcat#Dataset")).collect
 
     for (d <- datasets) {
-      var datasetDataRDD = graphRdd.find(Some(NodeFactory.createURI(d)), None, None)
-      val objects = datasetDataRDD.map(f => f.getObject).collect()
+    var datasetDataRDD = graphRdd.filterSubjects(n => n.toString.equals(d.getSubject.toString)) 
+     val objects = datasetDataRDD.map(f => f.getObject).filter(n => n.isURI() || n.isBlank()).collect()
       datasetDataRDD = datasetDataRDD.union(getGraph(objects ,graphRdd))
-      val dsname = d.substring(d.lastIndexOf("/"),d.size)
+      val dsname = d.getSubject.toString.substring(d.getSubject.toString.lastIndexOf("/"),d.getSubject.toString.size)
       datasetDataRDD.coalesce(1,true).saveAsNTriplesFile(dest + "/"+ dsname,
           SaveMode.Overwrite, false)
 
@@ -53,13 +57,13 @@ object DatasetPartitioner {
     var result: RDD[Triple] = null;
     for (o <- objects) {
       if (result == null)
-        result = graphRdd.find(Some(o), None, None)
+        result = graphRdd.filterSubjects(n => n.toString.equals(o.toString))
       else
-        result = result.union(graphRdd.find(Some(o), None, None))
+        result = result.union(graphRdd.filterSubjects(n => n.toString.equals(o.toString)))
     }
-    val newObjects = result.map(f => f.getObject)
-    if (newObjects.take(0) != null)
-      result.union(getGraph(result.map(f => f.getObject).collect(), graphRdd))
+    val newObjects = result.map(f => f.getObject).collect()
+    if (newObjects.size > 0)
+      result.union(getGraph(newObjects.filter(n => n.isURI() || n.isBlank()), graphRdd))
     else
       result
   }

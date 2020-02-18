@@ -9,4 +9,5 @@ buildNumber.properties
 .classpath
 .cache-main-project
 .settings/
-
+.cache-main
+.project
