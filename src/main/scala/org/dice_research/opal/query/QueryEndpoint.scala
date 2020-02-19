@@ -38,7 +38,7 @@ object QueryEndpoint {
       .getOrCreate()
 
     val lang = Lang.NT
-    val graphRdd = spark.rdf(lang)(input)
+    val graphRdd = spark.rdf(lang)(input).persist()
 
     
         val partitions = RdfPartitionUtilsSpark.partitionGraph(graphRdd)

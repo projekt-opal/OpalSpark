@@ -12,43 +12,71 @@ import org.apache.jena.graph.NodeFactory
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-
+import java.io.PrintWriter
+import java.net.URI
+import java.io.FileOutputStream
+import java.io.File
+import org.apache.jena.rdf.model.ModelFactory
+import org.apache.jena.rdf.model.ResourceFactory
+import org.apache.jena.riot.RDFDataMgr
 
 /**
- * 
+ *
  * Spark Job to split a dataportal file into individual files for each dataset
- * 
+ *
  * @author Geraldo de Souza Junior
- * 
+ *
  */
 object DatasetPartitioner {
 
   def main(args: Array[String]): Unit = {
 
     val spark = SparkSession.builder().appName("DatasetPartitioner")
-//    .master("local[*]")
-     .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer").getOrCreate()
+      .master("local[*]")
+      .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer").getOrCreate()
 
     val input = args(0)
     val dest = args(1)
     val lType = args(2).toLowerCase()
 
-    val lang = if( lType.equals("ttl") )Lang.TTL else Lang.NT 
+    val lang = if (lType.equals("ttl")) Lang.TTL else Lang.NT
 
     val graphRdd = spark.rdf(lang)(input).persist
 
     val datasets = graphRdd.filter(f => f.getObject.toString.equals("http://www.w3.org/ns/dcat#Dataset")).collect
 
     for (d <- datasets) {
-    var datasetDataRDD = graphRdd.filterSubjects(n => n.toString.equals(d.getSubject.toString)) 
-     val objects = datasetDataRDD.map(f => f.getObject).filter(n => n.isURI() || n.isBlank()).collect()
-      datasetDataRDD = datasetDataRDD.union(getGraph(objects ,graphRdd))
-      val dsname = d.getSubject.toString.substring(d.getSubject.toString.lastIndexOf("/"),d.getSubject.toString.size)
-      datasetDataRDD.coalesce(1,true).saveAsNTriplesFile(dest + "/"+ dsname,
-          SaveMode.Overwrite, false)
+      var datasetDataRDD = graphRdd.filterSubjects(n => n.toString.equals(d.getSubject.toString))
+      val objects = datasetDataRDD.map(f => f.getObject).filter(n => n.isURI() || n.isBlank()).collect()
+      datasetDataRDD = datasetDataRDD.union(getGraph(objects, graphRdd))
+      val dsname = d.getSubject.toString.substring(d.getSubject.toString.lastIndexOf("/"), d.getSubject.toString.size)
+
+      val model = ModelFactory.createDefaultModel()
+
+      datasetDataRDD.collect.foreach { t =>
+        if (t.getObject.isURI() || t.getObject.isBlank())
+          model.add(
+            ResourceFactory.createResource(t.getSubject.toString()),
+            ResourceFactory.createProperty(t.getPredicate.toString()),
+            ResourceFactory.createResource(t.getObject.toString()))
+
+        else
+          model.add(
+            ResourceFactory.createResource(t.getSubject.toString()),
+            ResourceFactory.createProperty(t.getPredicate.toString()),
+            ResourceFactory.createPlainLiteral(t.getObject.toString()))
+      }
+
+      val fos = new FileOutputStream(new File(dest + "/" + dsname + ".nt"))
+
+      RDFDataMgr.write(fos, model, Lang.NT)
+
+      //      datasetDataRDD.coalesce(1, true).saveAsNTriplesFile(
+      //        dest + "/" + dsname,
+      //        SaveMode.Overwrite, false)
 
     }
-    
+
     spark.stop
 
   }
@@ -61,6 +89,7 @@ object DatasetPartitioner {
       else
         result = result.union(graphRdd.filterSubjects(n => n.toString.equals(o.toString)))
     }
+    result.checkpoint
     val newObjects = result.map(f => f.getObject).collect()
     if (newObjects.size > 0)
       result.union(getGraph(newObjects.filter(n => n.isURI() || n.isBlank()), graphRdd))
