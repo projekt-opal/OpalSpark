@@ -35,6 +35,8 @@ object DatasetPartitioner {
       .master("local[*]")
       .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer").getOrCreate()
 
+    spark.sparkContext.setLogLevel("ERROR")
+
     val input = args(0)
     val dest = args(1)
     val lType = args(2).toLowerCase()
@@ -46,34 +48,40 @@ object DatasetPartitioner {
     val datasets = graphRdd.filter(f => f.getObject.toString.equals("http://www.w3.org/ns/dcat#Dataset")).collect
 
     for (d <- datasets) {
-      var datasetDataRDD = graphRdd.filterSubjects(n => n.toString.equals(d.getSubject.toString))
-      val objects = datasetDataRDD.map(f => f.getObject).filter(n => n.isURI() || n.isBlank()).collect()
-      datasetDataRDD = datasetDataRDD.union(getGraph(objects, graphRdd))
       val dsname = d.getSubject.toString.substring(d.getSubject.toString.lastIndexOf("/"), d.getSubject.toString.size)
+      println(" >> Processing Dataset: " + dsname)
 
-      val model = ModelFactory.createDefaultModel()
+      if (!new File(dest + "/" + dsname + ".nt").exists()) {
 
-      datasetDataRDD.collect.foreach { t =>
-        if (t.getObject.isURI() || t.getObject.isBlank())
-          model.add(
-            ResourceFactory.createResource(t.getSubject.toString()),
-            ResourceFactory.createProperty(t.getPredicate.toString()),
-            ResourceFactory.createResource(t.getObject.toString()))
+        var datasetDataRDD = graphRdd.filterSubjects(n => n.toString.equals(d.getSubject.toString))
+        val objects = datasetDataRDD.map(f => f.getObject).filter(n => n.isURI() || n.isBlank()).collect()
+        datasetDataRDD = datasetDataRDD.union(getGraph(objects, graphRdd))
 
-        else
-          model.add(
-            ResourceFactory.createResource(t.getSubject.toString()),
-            ResourceFactory.createProperty(t.getPredicate.toString()),
-            ResourceFactory.createPlainLiteral(t.getObject.toString()))
+        val model = ModelFactory.createDefaultModel()
+
+        datasetDataRDD.collect.foreach { t =>
+          if (t.getObject.isURI() || t.getObject.isBlank())
+            model.add(
+              ResourceFactory.createResource(t.getSubject.toString()),
+              ResourceFactory.createProperty(t.getPredicate.toString()),
+              ResourceFactory.createResource(t.getObject.toString()))
+
+          else
+            model.add(
+              ResourceFactory.createResource(t.getSubject.toString()),
+              ResourceFactory.createProperty(t.getPredicate.toString()),
+              ResourceFactory.createPlainLiteral(t.getObject.toString()))
+        }
+
+        val fos = new FileOutputStream(new File(dest + "/" + dsname + ".nt"))
+
+        RDFDataMgr.write(fos, model, Lang.NT)
+
+        println(" >> " + dsname + " dataset saved.")
+
+      } else {
+        println("Dataset " + dest + "/" + dsname + ".nt" + " already exists")
       }
-
-      val fos = new FileOutputStream(new File(dest + "/" + dsname + ".nt"))
-
-      RDFDataMgr.write(fos, model, Lang.NT)
-
-      //      datasetDataRDD.coalesce(1, true).saveAsNTriplesFile(
-      //        dest + "/" + dsname,
-      //        SaveMode.Overwrite, false)
 
     }
 
@@ -82,14 +90,8 @@ object DatasetPartitioner {
   }
 
   def getGraph(objects: Array[Node], graphRdd: RDD[Triple]): RDD[Triple] = {
-    var result: RDD[Triple] = null;
-    for (o <- objects) {
-      if (result == null)
-        result = graphRdd.filterSubjects(n => n.toString.equals(o.toString))
-      else
-        result = result.union(graphRdd.filterSubjects(n => n.toString.equals(o.toString)))
-    }
-    result.checkpoint
+    var result: RDD[Triple] = graphRdd.filterSubjects(n => objects.contains(n));
+
     val newObjects = result.map(f => f.getObject).collect()
     if (newObjects.size > 0)
       result.union(getGraph(newObjects.filter(n => n.isURI() || n.isBlank()), graphRdd))
