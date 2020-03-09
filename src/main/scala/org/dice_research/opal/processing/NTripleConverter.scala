@@ -14,23 +14,11 @@ object NTripleConverter {
       //    .master("local[*]")
       .getOrCreate()
 
-    var triples: RDD[Triple] = null
+    val lang = Lang.TTL
 
-    val files = args.dropRight(1)
+    val triples = spark.rdf(lang)(args(0))
 
-    for (path <- files) {
-
-      val lang = Lang.TTL
-      if (triples == null) {
-        triples = spark.rdf(lang)(path)
-
-      } else {
-        val temp = spark.rdf(lang)(path)
-        triples.union(temp)
-      }
-
-    }
-    triples.saveAsNTriplesFile(args(args.size - 1), SaveMode.Overwrite, false)
+    triples.saveAsNTriplesFile(args(1), SaveMode.Overwrite, false)
 
   }
 
