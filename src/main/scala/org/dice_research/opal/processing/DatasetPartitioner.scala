@@ -19,6 +19,7 @@ import java.io.File
 import org.apache.jena.rdf.model.ModelFactory
 import org.apache.jena.rdf.model.ResourceFactory
 import org.apache.jena.riot.RDFDataMgr
+import org.apache.spark.SparkContext
 
 /**
  *
@@ -29,74 +30,101 @@ import org.apache.jena.riot.RDFDataMgr
  */
 object DatasetPartitioner {
 
+  var sc: SparkContext = null
+
   def main(args: Array[String]): Unit = {
 
     val spark = SparkSession.builder().appName("DatasetPartitioner")
       .master("local[*]")
       .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer").getOrCreate()
 
+    sc = spark.sparkContext
+
     spark.sparkContext.setLogLevel("ERROR")
 
     val input = args(0)
+
+    val files = getListOfFiles(input)
     val dest = args(1)
     val lType = args(2).toLowerCase()
 
     val lang = if (lType.equals("ttl")) Lang.TTL else Lang.NT
 
-    val graphRdd = spark.rdf(lang)(input).persist
+    for (f <- files) {
 
-    val datasets = graphRdd.filter(f => f.getObject.toString.equals("http://www.w3.org/ns/dcat#Dataset")).collect
+      val graphRdd = spark.rdf(lang)(f.getAbsolutePath).persist
 
-    for (d <- datasets) {
-      val dsname = d.getSubject.toString.substring(d.getSubject.toString.lastIndexOf("/"), d.getSubject.toString.size)
-      println(" >> Processing Dataset: " + dsname)
+      val datasets = graphRdd.filter(f => f.getObject.toString.equals("http://www.w3.org/ns/dcat#Dataset")).collect
 
-      if (!new File(dest + "/" + dsname + ".nt").exists()) {
+      for (d <- datasets) {
+        var dsname = d.getSubject.toString.substring(d.getSubject.toString.lastIndexOf("/"), d.getSubject.toString.size)
+        println(" >> Processing Dataset: " + dsname)
 
-        var datasetDataRDD = graphRdd.filterSubjects(n => n.toString.equals(d.getSubject.toString))
-        val objects = datasetDataRDD.map(f => f.getObject).filter(n => n.isURI() || n.isBlank()).collect()
-        datasetDataRDD = datasetDataRDD.union(getGraph(objects, graphRdd))
+        if (!new File(dest + "/" + dsname + ".nt").exists()) {
 
-        val model = ModelFactory.createDefaultModel()
+          var datasetDataRDD = graphRdd.filterSubjects(n => n.toString.equals(d.getSubject.toString))
+          val objects = datasetDataRDD.map(f => f.getObject).filter(n => n.isURI() || n.isBlank()).collect().distinct
+          val visited = objects.map(f => f.toString()).distinct
+          datasetDataRDD = datasetDataRDD.union(getGraph(objects, graphRdd, visited))
 
-        datasetDataRDD.collect.foreach { t =>
-          if (t.getObject.isURI() || t.getObject.isBlank())
-            model.add(
-              ResourceFactory.createResource(t.getSubject.toString()),
-              ResourceFactory.createProperty(t.getPredicate.toString()),
-              ResourceFactory.createResource(t.getObject.toString()))
+          val model = ModelFactory.createDefaultModel()
 
-          else
-            model.add(
-              ResourceFactory.createResource(t.getSubject.toString()),
-              ResourceFactory.createProperty(t.getPredicate.toString()),
-              ResourceFactory.createPlainLiteral(t.getObject.toString()))
+          datasetDataRDD.collect.foreach { t =>
+            if (t.getObject.isURI() || t.getObject.isBlank())
+              model.add(
+                ResourceFactory.createResource(t.getSubject.toString()),
+                ResourceFactory.createProperty(t.getPredicate.toString()),
+                ResourceFactory.createResource(t.getObject.toString()))
+
+            else
+              model.add(
+                ResourceFactory.createResource(t.getSubject.toString()),
+                ResourceFactory.createProperty(t.getPredicate.toString()),
+                ResourceFactory.createPlainLiteral(t.getObject.toString()))
+          }
+          
+          if(dsname.length > 50)
+            dsname = dsname.substring(0,50)
+          
+
+          val fos = new FileOutputStream(new File(dest + "/" + dsname + ".nt"))
+
+          RDFDataMgr.write(fos, model, Lang.NT)
+
+          println(" >> " + dsname + " dataset saved.")
+
+        } else {
+          println("Dataset " + dest + "/" + dsname + ".nt" + " already exists")
         }
 
-        val fos = new FileOutputStream(new File(dest + "/" + dsname + ".nt"))
-
-        RDFDataMgr.write(fos, model, Lang.NT)
-
-        println(" >> " + dsname + " dataset saved.")
-
-      } else {
-        println("Dataset " + dest + "/" + dsname + ".nt" + " already exists")
       }
-
+      graphRdd.unpersist(true)
     }
 
     spark.stop
 
   }
 
-  def getGraph(objects: Array[Node], graphRdd: RDD[Triple]): RDD[Triple] = {
+  def getGraph(objects: Array[Node], graphRdd: RDD[Triple], visited: Array[String]): RDD[Triple] = {
     var result: RDD[Triple] = graphRdd.filterSubjects(n => objects.contains(n));
 
-    val newObjects = result.map(f => f.getObject).collect()
+    val newObjects = result.map(f => f.getObject).collect().distinct.filter(p => !visited.contains(p.toString()))
+
+    val n_visited = visited ++ newObjects.map(n => n.toString()).distinct
+
     if (newObjects.size > 0)
-      result.union(getGraph(newObjects.filter(n => n.isURI() || n.isBlank()), graphRdd))
+      sc.union(result, getGraph(newObjects.filter(n => n.isURI() || n.isBlank()), graphRdd, n_visited))
     else
       result
+  }
+
+  def getListOfFiles(dir: String): List[File] = {
+    val d = new File(dir)
+    if (d.exists && d.isDirectory) {
+      d.listFiles.filter(_.isFile).toList
+    } else {
+      List[File]()
+    }
   }
 
 }

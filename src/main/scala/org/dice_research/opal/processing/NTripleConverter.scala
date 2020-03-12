@@ -11,7 +11,7 @@ object NTripleConverter {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder()
       .appName("NtripleConverter")
-      //    .master("local[*]")
+          .master("local[*]")
       .getOrCreate()
 
     val lang = Lang.TTL
