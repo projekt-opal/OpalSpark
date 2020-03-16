@@ -59,6 +59,9 @@ object DatasetPartitioner {
       for (d <- datasets) {
         var dsname = d.getSubject.toString.substring(d.getSubject.toString.lastIndexOf("/"), d.getSubject.toString.size)
         println(" >> Processing Dataset: " + dsname)
+        
+        if(dsname.length > 100)
+            dsname = dsname.substring(0,100)
 
         if (!new File(dest + "/" + dsname + ".nt").exists()) {
 
@@ -83,8 +86,7 @@ object DatasetPartitioner {
                 ResourceFactory.createPlainLiteral(t.getObject.toString()))
           }
           
-          if(dsname.length > 50)
-            dsname = dsname.substring(0,50)
+          
           
 
           val fos = new FileOutputStream(new File(dest + "/" + dsname + ".nt"))
