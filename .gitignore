@@ -11,3 +11,5 @@ buildNumber.properties
 .settings/
 .cache-main
 .project
+src/main/resources/edp
+src/main/resources/result
