@@ -20,6 +20,7 @@ import org.apache.jena.rdf.model.ModelFactory
 import org.apache.jena.rdf.model.ResourceFactory
 import org.apache.jena.riot.RDFDataMgr
 import org.apache.spark.SparkContext
+import java.nio.file.Files
 
 /**
  *
@@ -36,19 +37,25 @@ object DatasetPartitioner {
 
     val spark = SparkSession.builder().appName("DatasetPartitioner")
       .master("local[*]")
-      .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer").getOrCreate()
+      .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+      .config("SPARK_LOCAL_DIRS","/tmp").getOrCreate()
 
     sc = spark.sparkContext
 
     spark.sparkContext.setLogLevel("ERROR")
+    
+    val inputFile = args(0)
+    val tempDest = Files.createTempDirectory("convertDir").toFile
 
-    val input = args(0)
+    val input = tempDest.getAbsolutePath
 
-    val files = getListOfFiles(input)
     val dest = args(1)
-    val lType = args(2).toLowerCase()
+    
+    val ntc = new NTripleConverter()  
+    ntc.run(spark,inputFile, tempDest.getAbsolutePath)
 
-    val lang = if (lType.equals("ttl")) Lang.TTL else Lang.NT
+    val lang = Lang.NT
+    val files = getListOfFiles(input)
 
     for (f <- files) {
 
@@ -102,7 +109,7 @@ object DatasetPartitioner {
       }
       graphRdd.unpersist(true)
     }
-
+    tempDest.delete()
     spark.stop
 
   }
