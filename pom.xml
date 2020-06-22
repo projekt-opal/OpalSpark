@@ -80,22 +80,6 @@
 		</dependency>
 
 
-		<!-- https://mvnrepository.com/artifact/org.vegas-viz/vegas -->
-		<dependency>
-			<groupId>org.vegas-viz</groupId>
-			<artifactId>vegas_2.11</artifactId>
-			<version>0.3.11</version>
-		</dependency>
-
-		<!-- https://mvnrepository.com/artifact/org.vegas-viz/vegas-spark -->
-		<dependency>
-			<groupId>org.vegas-viz</groupId>
-			<artifactId>vegas-spark_2.11</artifactId>
-			<version>0.3.11</version>
-		</dependency>
-
-
-
 		<!-- Apache JENA -->
 		<dependency>
 			<groupId>org.apache.jena</groupId>
@@ -143,6 +127,9 @@
 						<configuration>
 							<outputDirectory>${project.build.directory}/lib</outputDirectory>
 							<excludeScope>provided</excludeScope>
+							<excludeGroupIds>
+								org.apache.spark,org.eclipse.jetty,org.scala-lang
+							</excludeGroupIds>
 						</configuration>
 					</execution>
 				</executions>
