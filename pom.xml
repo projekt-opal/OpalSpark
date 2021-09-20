@@ -10,7 +10,7 @@
 		<scala.binary>2.11.11</scala.binary>
 		<spark.version>2.4.4</spark.version>
 		<sansa-version>0.7.1</sansa-version>
-		<jena-version>3.11.0</jena-version>
+		<jena-version>4.2.0</jena-version>
 	</properties>
 
 
